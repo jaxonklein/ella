@@ -26,8 +26,60 @@ export default function Home() {
     resizeCanvas()
     window.addEventListener('resize', resizeCanvas)
 
+    // Load saved canvas
+    loadCanvas()
+
     return () => window.removeEventListener('resize', resizeCanvas)
   }, [])
+
+  // Auto-save canvas every 2 seconds when drawing
+  useEffect(() => {
+    if (!isDrawing) return
+
+    const saveTimer = setTimeout(() => {
+      saveCanvas()
+    }, 2000)
+
+    return () => clearTimeout(saveTimer)
+  }, [isDrawing])
+
+  const loadCanvas = async () => {
+    try {
+      const response = await fetch('/api/canvas')
+      const data = await response.json()
+
+      if (data.imageData) {
+        const canvas = canvasRef.current
+        if (!canvas) return
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+
+        const img = new Image()
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0)
+        }
+        img.src = data.imageData
+      }
+    } catch (error) {
+      console.error('Failed to load canvas:', error)
+    }
+  }
+
+  const saveCanvas = async () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    try {
+      const imageData = canvas.toDataURL('image/png')
+      await fetch('/api/canvas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageData })
+      })
+    } catch (error) {
+      console.error('Failed to save canvas:', error)
+    }
+  }
 
   const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
     setIsDrawing(true)
@@ -71,13 +123,20 @@ export default function Home() {
     ctx.moveTo(x, y)
   }
 
-  const clearCanvas = () => {
+  const clearCanvas = async () => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx.fillStyle = '#FFF'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    // Clear saved canvas
+    try {
+      await fetch('/api/canvas', { method: 'DELETE' })
+    } catch (error) {
+      console.error('Failed to clear saved canvas:', error)
+    }
   }
 
   const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2']
