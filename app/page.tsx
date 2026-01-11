@@ -1,14 +1,21 @@
 'use client'
 
 import { useRef, useEffect, useState } from 'react'
+import Pusher from 'pusher-js'
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isDrawing, setIsDrawing] = useState(false)
   const [color, setColor] = useState('#FF6B6B')
   const [brushSize, setBrushSize] = useState(5)
+  const [onlineUsers, setOnlineUsers] = useState(1)
+  const pusherRef = useRef<Pusher | null>(null)
+  const userIdRef = useRef<string>('')
 
   useEffect(() => {
+    // Generate unique user ID
+    userIdRef.current = Math.random().toString(36).substring(7)
+
     const canvas = canvasRef.current
     if (!canvas) return
 
@@ -17,8 +24,10 @@ export default function Home() {
 
     // Set canvas size to window size
     const resizeCanvas = () => {
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
       canvas.width = window.innerWidth
       canvas.height = window.innerHeight
+      ctx.putImageData(imageData, 0, 0)
       ctx.fillStyle = '#FFF'
       ctx.fillRect(0, 0, canvas.width, canvas.height)
     }
@@ -29,7 +38,57 @@ export default function Home() {
     // Load saved canvas
     loadCanvas()
 
-    return () => window.removeEventListener('resize', resizeCanvas)
+    // Setup Pusher for real-time collaboration
+    if (process.env.NEXT_PUBLIC_PUSHER_APP_KEY) {
+      pusherRef.current = new Pusher(process.env.NEXT_PUBLIC_PUSHER_APP_KEY, {
+        cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER || 'us2'
+      })
+
+      const channel = pusherRef.current.subscribe('canvas')
+
+      channel.bind('draw', (data: any) => {
+        // Don't draw our own strokes (we already drew them locally)
+        if (data.userId === userIdRef.current) return
+
+        const canvas = canvasRef.current
+        if (!canvas) return
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+
+        ctx.strokeStyle = data.color
+        ctx.lineWidth = data.brushSize
+        ctx.lineCap = 'round'
+
+        if (data.type === 'start') {
+          ctx.beginPath()
+          ctx.moveTo(data.x, data.y)
+        } else if (data.type === 'draw') {
+          ctx.lineTo(data.x, data.y)
+          ctx.stroke()
+          ctx.beginPath()
+          ctx.moveTo(data.x, data.y)
+        }
+      })
+
+      channel.bind('pusher:subscription_succeeded', (members: any) => {
+        setOnlineUsers(members?.count || 1)
+      })
+
+      channel.bind('pusher:member_added', () => {
+        setOnlineUsers(prev => prev + 1)
+      })
+
+      channel.bind('pusher:member_removed', () => {
+        setOnlineUsers(prev => Math.max(1, prev - 1))
+      })
+    }
+
+    return () => {
+      window.removeEventListener('resize', resizeCanvas)
+      if (pusherRef.current) {
+        pusherRef.current.disconnect()
+      }
+    }
   }, [])
 
   // Auto-save canvas every 2 seconds when drawing
@@ -81,8 +140,44 @@ export default function Home() {
     }
   }
 
+  const broadcastDraw = async (x: number, y: number, type: 'start' | 'draw') => {
+    if (!process.env.NEXT_PUBLIC_PUSHER_APP_KEY) return
+
+    try {
+      await fetch('/api/draw', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: userIdRef.current,
+          x,
+          y,
+          color,
+          brushSize,
+          type
+        })
+      })
+    } catch (error) {
+      console.error('Failed to broadcast:', error)
+    }
+  }
+
   const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
     setIsDrawing(true)
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    let x, y
+    if ('touches' in e) {
+      const rect = canvas.getBoundingClientRect()
+      x = e.touches[0].clientX - rect.left
+      y = e.touches[0].clientY - rect.top
+    } else {
+      x = e.nativeEvent.offsetX
+      y = e.nativeEvent.offsetY
+    }
+
+    broadcastDraw(x, y, 'start')
     draw(e)
   }
 
@@ -121,6 +216,11 @@ export default function Home() {
     ctx.stroke()
     ctx.beginPath()
     ctx.moveTo(x, y)
+
+    // Broadcast to other users
+    if (isDrawing || e.type === 'touchstart' || e.type === 'mousedown') {
+      broadcastDraw(x, y, 'draw')
+    }
   }
 
   const clearCanvas = async () => {
@@ -158,6 +258,12 @@ export default function Home() {
       {/* Controls */}
       <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-white rounded-full shadow-lg p-4 flex items-center gap-4 z-10">
         <div className="text-sm font-semibold text-gray-700">Ella's Canvas ✨</div>
+        {process.env.NEXT_PUBLIC_PUSHER_APP_KEY && (
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <span className="text-xs text-gray-600">{onlineUsers} online</span>
+          </div>
+        )}
       </div>
 
       {/* Color Palette */}
