@@ -1,41 +1,63 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Pusher from 'pusher'
 
-// Initialize Pusher only if credentials are available
-let pusher: Pusher | null = null
+// In-memory storage for recent drawing strokes
+// In production, this will be per-instance, but that's okay for simple collaboration
+const recentStrokes: any[] = []
+const MAX_STROKES = 1000 // Keep last 1000 strokes in memory
+const STROKE_EXPIRY = 10000 // Keep strokes for 10 seconds
 
-if (process.env.PUSHER_APP_ID &&
-    process.env.PUSHER_SECRET &&
-    process.env.NEXT_PUBLIC_PUSHER_APP_KEY &&
-    process.env.NEXT_PUBLIC_PUSHER_CLUSTER) {
-  pusher = new Pusher({
-    appId: process.env.PUSHER_APP_ID,
-    key: process.env.NEXT_PUBLIC_PUSHER_APP_KEY,
-    secret: process.env.PUSHER_SECRET,
-    cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER,
-    useTLS: true
-  })
-}
+// Clean up old strokes periodically
+setInterval(() => {
+  const now = Date.now()
+  while (recentStrokes.length > 0 && now - recentStrokes[0].timestamp > STROKE_EXPIRY) {
+    recentStrokes.shift()
+  }
+}, 5000)
 
 export async function POST(request: NextRequest) {
   try {
-    if (!pusher) {
-      return NextResponse.json({
-        success: false,
-        error: 'Pusher not configured'
-      }, { status: 500 })
-    }
-
     const data = await request.json()
 
-    await pusher.trigger('canvas', 'draw', data)
+    // Add timestamp
+    const stroke = {
+      ...data,
+      timestamp: Date.now()
+    }
+
+    recentStrokes.push(stroke)
+
+    // Keep array size manageable
+    if (recentStrokes.length > MAX_STROKES) {
+      recentStrokes.shift()
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error broadcasting draw event:', error)
+    console.error('Error storing stroke:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to broadcast'
+      error: 'Failed to store stroke'
+    }, { status: 500 })
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const since = parseInt(searchParams.get('since') || '0')
+
+    // Return strokes newer than the requested timestamp
+    const newStrokes = recentStrokes.filter(stroke => stroke.timestamp > since)
+
+    return NextResponse.json({
+      strokes: newStrokes,
+      timestamp: Date.now()
+    })
+  } catch (error) {
+    console.error('Error fetching strokes:', error)
+    return NextResponse.json({
+      strokes: [],
+      timestamp: Date.now()
     }, { status: 500 })
   }
 }

@@ -4,12 +4,19 @@ A real-time multiplayer drawing canvas where anyone can draw together!
 
 ## Features
 
-- ✨ Real-time collaborative drawing
+- ✨ Real-time collaborative drawing (no signups required!)
 - 🎨 8 vibrant colors to choose from
-- 📏 Adjustable brush sizes
+- 📏 Adjustable brush sizes (1-20px)
 - 💾 Canvas persists across sessions
 - 📱 Mobile-friendly touch support
 - 👥 See how many people are drawing live
+
+## How It Works
+
+- Drawing strokes are shared via HTTP polling (every 300ms)
+- Canvas state saves automatically every 2 seconds
+- Drawings persist until someone clicks "Clear"
+- Works entirely self-contained - no external services needed!
 
 ## Setup
 
@@ -19,39 +26,38 @@ A real-time multiplayer drawing canvas where anyone can draw together!
 npm install
 ```
 
-### 2. Set up Pusher (for real-time features)
+### 2. Run locally
 
-1. Create a free account at [pusher.com](https://pusher.com)
-2. Create a new Channels app
-3. Copy your credentials
-4. Create `.env.local` in the project root:
-
-```env
-NEXT_PUBLIC_PUSHER_APP_KEY=your_pusher_app_key
-NEXT_PUBLIC_PUSHER_CLUSTER=us2
-PUSHER_APP_ID=your_app_id
-PUSHER_SECRET=your_pusher_secret
+```bash
+npm run dev
 ```
+
+Open http://localhost:3000 in multiple browser tabs to test multiplayer!
 
 ### 3. Deploy to Vercel
 
 1. Push to GitHub
 2. Import in Vercel
-3. Add environment variables in Vercel dashboard
-4. Deploy!
+3. Deploy!
 
-## How It Works
-
-- Drawing strokes are broadcast in real-time to all connected users
-- Canvas state is saved to disk every 2 seconds
-- Drawings persist until someone clicks "Clear"
-- Works without Pusher, but no real-time collaboration
+No environment variables needed - it just works out of the box.
 
 ## Tech Stack
 
-- Next.js 14
-- React
-- TypeScript
-- Pusher (WebSocket alternative)
+- Next.js 14 (App Router)
+- React with TypeScript
+- HTTP Polling for real-time sync
+- In-memory storage for stroke synchronization
+- File system for canvas persistence
 - HTML Canvas API
 - Tailwind CSS
+
+## Limitations
+
+- Strokes are kept in memory for 10 seconds
+- User count is approximate (based on recent activity)
+- On serverless platforms like Vercel, each instance has its own memory
+  - This means users might see slight delays if they're on different instances
+  - For most use cases (family/friends drawing together), this is totally fine!
+
+For higher-scale deployments, consider adding a shared database or Redis for stroke synchronization.
